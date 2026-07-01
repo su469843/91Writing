@@ -6,11 +6,6 @@ services:
     container_name: mo-zhang
     ports:
       - "8080:80"
-    volumes:
-      # 持久化小说数据到本地
-      - ./data/novels:/app/data/novels
-      # 持久化用户配置
-      - ./data/config:/app/data/config
     environment:
       - TZ=Asia/Shanghai
     restart: unless-stopped
@@ -20,9 +15,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-
-volumes:
-  novels:
-    driver: local
-  config:
-    driver: local
