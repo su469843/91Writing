@@ -20,6 +20,7 @@ RUN pnpm build
 FROM base AS backend-builder
 WORKDIR /app/server
 COPY server/package*.json server/pnpm-lock.yaml ./
+RUN apk add --no-cache python3 g++ make
 RUN pnpm install --frozen-lockfile --prod
 
 # ============================================
@@ -65,6 +66,8 @@ CMD ["node", "server/index.js"]
 # ============================================
 FROM base AS development
 WORKDIR /app
+
+RUN apk add --no-cache python3 g++ make
 
 # 复制所有 package 文件
 COPY package*.json pnpm-lock.yaml ./
