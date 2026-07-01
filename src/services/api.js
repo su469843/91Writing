@@ -1,67 +1,74 @@
-import apiConfig from '../config/api.json'
+import backendApi from './backendApi.js'
 import billingService from './billing.js'
 import { ElMessage } from 'element-plus'
 
 class APIService {
   constructor() {
-    this.config = { ...apiConfig.openai }
-    this.proxyConfig = apiConfig.proxy
-    // 尝试从localStorage加载用户配置
-    this.loadUserConfig()
+    this.config = {
+      apiKey: '',
+      baseURL: '/api/ai',
+      models: [],
+      defaultModel: '',
+      selectedModel: '',
+      maxTokens: 4096,
+      temperature: 0.7
+    }
   }
-  
-  // 加载用户配置
-  loadUserConfig() {
+
+  async loadUserConfig() {
     try {
-      const saved = localStorage.getItem('apiConfig')
-      if (saved) {
-        this.config = { ...this.config, ...JSON.parse(saved) }
-      } else {
-        // 向后兼容：迁移旧的自定义配置
-        const legacyCustom = localStorage.getItem('customApiConfig')
-        if (legacyCustom) {
-          this.config = { ...this.config, ...JSON.parse(legacyCustom) }
-          localStorage.setItem('apiConfig', JSON.stringify(this.config))
-        }
+      const config = await backendApi.getAIConfig()
+      if (config) {
+        this.config.selectedModel = config.model || ''
+        this.config.maxTokens = config.max_tokens || 4096
+        this.config.temperature = config.temperature || 0.7
       }
-    } catch (error) {
-      console.error('加载用户API配置失败:', error)
+    } catch {
+      console.log('后端配置未就绪，使用默认配置')
     }
   }
 
-  // 获取API配置
   getConfig() {
-    return this.config
+    return { ...this.config, apiKey: '' }
   }
 
-  // 更新API配置
-  updateConfig(newConfig) {
-    this.config = { ...this.config, ...newConfig }
-    try {
-      localStorage.setItem('apiConfig', JSON.stringify(this.config))
-    } catch (error) {
-      console.error('保存API配置失败:', error)
+  async updateConfig(newConfig) {
+    Object.assign(this.config, newConfig)
+    if (newConfig.apiKey || newConfig.selectedModel || newConfig.baseURL) {
+      try {
+        await backendApi.saveAIConfig({
+          provider: 'deepseek',
+          api_key: newConfig.apiKey || '',
+          base_url: newConfig.baseURL || 'https://api.deepseek.com',
+          model: newConfig.selectedModel || this.config.selectedModel,
+          max_tokens: newConfig.maxTokens || this.config.maxTokens,
+          temperature: newConfig.temperature || this.config.temperature
+        })
+      } catch (error) {
+        console.error('保存 API 配置到后端失败:', error)
+      }
     }
   }
 
-  // 构建请求URL
   buildURL(endpoint) {
-    return `${this.config.baseURL}${endpoint}`
+    return `/api/ai${endpoint}`
   }
 
-  // 构建请求头
   buildHeaders() {
-    return {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${this.config.apiKey}`
+    const headers = {
+      'Content-Type': 'application/json'
     }
+    const token = backendApi.token
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+    return headers
   }
 
-  // 通用API请求方法
   async makeRequest(endpoint, options = {}) {
     const url = this.buildURL(endpoint)
     const headers = this.buildHeaders()
-    
+
     const requestOptions = {
       method: 'POST',
       headers,
@@ -70,12 +77,12 @@ class APIService {
 
     try {
       const response = await fetch(url, requestOptions)
-      
+
       if (!response.ok) {
         const errorData = await response.json()
-        throw new Error(`API请求失败: ${response.status} - ${errorData.error?.message || '未知错误'}`)
+        throw new Error(`API请求失败: ${response.status} - ${errorData.error?.message || errorData.error || '未知错误'}`)
       }
-      
+
       return await response.json()
     } catch (error) {
       console.error('API请求错误:', error)
@@ -83,11 +90,9 @@ class APIService {
     }
   }
 
-  // 生成文本内容
   async generateText(prompt, options = {}) {
-    const model = options.model || this.config.selectedModel || this.config.defaultModel || 'gpt-3.5-turbo'
-    
-    // 估算输入token数量（用于记录，无需检查余额）
+    const model = options.model || this.config.selectedModel || this.config.defaultModel || 'deepseek-chat'
+
     const estimatedInputTokens = billingService.estimateTokens(prompt)
 
     const requestBody = {
@@ -108,10 +113,9 @@ class APIService {
         body: JSON.stringify(requestBody)
       })
 
-      const content = response.choices[0]?.message?.content || ''
+      const content = response.choices?.[0]?.message?.content || ''
       const usage = response.usage
-      
-      // 记录实际的token使用情况
+
       if (usage) {
         billingService.recordAPICall({
           type: options.type || 'generation',
@@ -123,7 +127,6 @@ class APIService {
           status: 'success'
         })
       } else {
-        // 如果API没有返回usage信息，使用估算值
         const outputTokens = billingService.estimateTokens(content)
         billingService.recordAPICall({
           type: options.type || 'generation',
@@ -138,7 +141,6 @@ class APIService {
 
       return content
     } catch (error) {
-      // 记录失败的API调用
       billingService.recordAPICall({
         type: options.type || 'generation',
         model: model,
@@ -152,54 +154,30 @@ class APIService {
     }
   }
 
-  // 流式生成文本内容
   async generateTextStream(prompt, options = {}, onChunk = null) {
-    console.log('开始流式生成，prompt:', prompt.substring(0, 100) + '...') // 调试日志
-    
-    // 验证配置的完整性
-    if (!this.config.apiKey || this.config.apiKey.trim() === '') {
-      throw new Error('API密钥未配置，请先在设置中配置API密钥')
+    if (!this.config.selectedModel && !options.model) {
+      throw new Error('未配置 AI 模型，请先在设置中配置 API')
     }
-    
-    if (!this.config.baseURL || this.config.baseURL.trim() === '') {
-      throw new Error('API地址未配置，请先在设置中配置API地址')
-    }
-    
-    const model = options.model || this.config.selectedModel || this.config.defaultModel || 'gpt-3.5-turbo'
-    console.log('使用模型:', model)
-    
-    // 验证prompt参数
+
+    const model = options.model || this.config.selectedModel || 'deepseek-chat'
+
     if (!prompt || typeof prompt !== 'string') {
       throw new Error('无效的prompt参数')
     }
-    
-    // 清理prompt内容，确保JSON序列化安全
+
     let cleanPrompt = prompt
     try {
-      // 移除控制字符和不可见字符
       cleanPrompt = prompt.replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
-      
-      // 确保可以正常JSON序列化
       JSON.stringify({ content: cleanPrompt })
-      
-      console.log('Prompt清理完成，原长度:', prompt.length, '清理后长度:', cleanPrompt.length)
     } catch (cleanError) {
       console.error('Prompt清理失败:', cleanError)
       throw new Error('提示词包含无法处理的字符，请检查输入内容')
     }
-    
-    // 估算输入token数量（用于记录，无需检查余额）
+
     const estimatedInputTokens = billingService.estimateTokens(cleanPrompt)
-    
-    // 移除maxTokens限制，允许无限制生成
+
     const maxTokens = options.maxTokens || this.config.maxTokens || null
-    
-    console.log('maxTokens配置检查:', {
-      'options.maxTokens': options.maxTokens,
-      'this.config.maxTokens': this.config.maxTokens,
-      '最终使用的maxTokens': maxTokens
-    })
-    
+
     const requestBody = {
       model: model,
       messages: [
@@ -208,37 +186,31 @@ class APIService {
           content: cleanPrompt
         }
       ],
-      max_tokens: maxTokens || undefined, // 如果为null则不设置限制
+      max_tokens: maxTokens || undefined,
       temperature: options.temperature || this.config.temperature,
       stream: true
     }
 
-    console.log('请求体:', requestBody) // 调试日志
-    
     const url = this.buildURL('/chat/completions')
     const headers = this.buildHeaders()
-    
+
     let fullContent = ''
     let hasError = false
-    
+
     try {
       const response = await fetch(url, {
         method: 'POST',
         headers,
         body: JSON.stringify(requestBody),
-        // 增加超时设置，避免长时间等待导致的截断
-        signal: AbortSignal.timeout(300000) // 5分钟超时，给更多时间生成长内容
+        signal: AbortSignal.timeout(300000)
       })
-      
-      console.log('API响应状态:', response.status) // 调试日志
 
       if (!response.ok) {
         const errorText = await response.text()
         hasError = true
-        console.error('API错误响应:', errorText)
         try {
           const errorData = JSON.parse(errorText)
-          throw new Error(`API请求失败: ${response.status} - ${errorData.error?.message || '未知错误'}`)
+          throw new Error(`API请求失败: ${response.status} - ${errorData.error?.details || errorData.error || '未知错误'}`)
         } catch (parseError) {
           throw new Error(`API请求失败: ${response.status} - ${errorText}`)
         }
@@ -248,30 +220,27 @@ class APIService {
       const decoder = new TextDecoder()
 
       let streamFinished = false
-      let buffer = '' // 用于处理分片数据
-      let processedChunks = 0 // 统计处理的chunk数量
-      let lastProgressTime = Date.now() // 记录最后一次接收数据的时间
-      let noDataTimeout = null // 无数据超时检查
-      
-      // 设置无数据超时检查（30秒没有新数据则认为可能有问题）
+      let buffer = ''
+      let processedChunks = 0
+      let lastProgressTime = Date.now()
+      let noDataTimeout = null
+
       const resetNoDataTimeout = () => {
         if (noDataTimeout) {
           clearTimeout(noDataTimeout)
         }
         noDataTimeout = setTimeout(() => {
           console.log('警告：30秒内没有接收到新数据，但流未结束')
-          // 不直接结束，继续等待，但记录警告
         }, 30000)
       }
-      
+
       resetNoDataTimeout()
-      
+
       try {
         while (!streamFinished) {
           const { done, value } = await reader.read()
-          
+
           if (done) {
-            console.log('读取完成，处理了', processedChunks, '个chunks，总内容长度:', fullContent.length)
             if (noDataTimeout) {
               clearTimeout(noDataTimeout)
             }
@@ -279,45 +248,38 @@ class APIService {
           }
 
           const chunk = decoder.decode(value, { stream: true })
-          console.log('接收到原始chunk:', chunk.length, '字节') // 调试日志
-          
-          // 重置无数据超时
+
           lastProgressTime = Date.now()
           resetNoDataTimeout()
-          
-          // 将新的chunk添加到缓冲区
+
           buffer += chunk
-          
-          // 按行分割，最后一行可能不完整，需要保留
+
           const lines = buffer.split('\n')
-          buffer = lines.pop() || '' // 保留最后一行（可能不完整）
+          buffer = lines.pop() || ''
 
           for (const line of lines) {
             const trimmedLine = line.trim()
-            
+
             if (trimmedLine.startsWith('data: ')) {
               const data = trimmedLine.slice(6).trim()
-              
+
               if (data === '[DONE]') {
-                console.log('收到[DONE]标记，流式生成完成，总内容长度:', fullContent.length)
                 streamFinished = true
                 break
               }
-              
-              // 跳过空数据
+
               if (!data || data === '') {
                 continue
               }
-              
+
               try {
                 const parsed = JSON.parse(data)
                 const content = parsed.choices?.[0]?.delta?.content || ''
-                
+
                 if (content) {
                   fullContent += content
                   processedChunks++
-                  console.log('接收到内容片段:', content.length, '字符，总长度:', fullContent.length)
-                  
+
                   if (onChunk) {
                     try {
                       onChunk(content, fullContent)
@@ -326,35 +288,26 @@ class APIService {
                     }
                   }
                 }
-                
-                // 检查是否有结束标记
+
                 if (parsed.choices?.[0]?.finish_reason) {
-                  console.log('检测到结束标记:', parsed.choices[0].finish_reason)
                   streamFinished = true
                   break
                 }
-                
-                // 检查是否有错误信息
+
                 if (parsed.error) {
                   console.error('API返回错误:', parsed.error)
                   throw new Error(`API错误: ${parsed.error.message || '未知错误'}`)
                 }
               } catch (e) {
-                console.log('解析数据失败，原始数据长度:', data.length, '错误:', e.message)
-                // 如果是JSON解析错误，继续处理其他数据
-                // 如果是API错误，则抛出异常
                 if (e.message.startsWith('API错误:')) {
                   throw e
                 }
-                // 继续处理其他数据，不中断流式处理
               }
             }
           }
         }
-        
-        // 处理剩余的缓冲区数据
+
         if (buffer.trim() && !streamFinished) {
-          console.log('处理剩余缓冲区数据:', buffer.length, '字符')
           const trimmedLine = buffer.trim()
           if (trimmedLine.startsWith('data: ')) {
             const data = trimmedLine.slice(6).trim()
@@ -364,7 +317,6 @@ class APIService {
                 const content = parsed.choices?.[0]?.delta?.content || ''
                 if (content) {
                   fullContent += content
-                  console.log('缓冲区内容片段:', content.length, '字符，总长度:', fullContent.length)
                   if (onChunk) {
                     onChunk(content, fullContent)
                   }
@@ -375,38 +327,26 @@ class APIService {
             }
           }
         }
-        
-        console.log('流式生成最终完成，总处理chunks:', processedChunks, '最终内容长度:', fullContent.length)
-        
-        // 清理超时检查
+
         if (noDataTimeout) {
           clearTimeout(noDataTimeout)
         }
-        
-        // 检查内容完整性
+
         if (fullContent.length === 0) {
           console.warn('警告：流式生成完成但没有获得任何内容')
-        } else if (fullContent.length < 10) {
-          console.warn('警告：生成的内容过短，可能被截断:', fullContent)
         }
-        
+
       } catch (streamError) {
-        console.error('流式读取错误:', streamError)
-        
-        // 清理超时检查
         if (noDataTimeout) {
           clearTimeout(noDataTimeout)
         }
-        
-        // 如果是网络错误或超时，但已经有部分内容，可以考虑返回部分内容
+
         if (fullContent.length > 0 && (
-          streamError.name === 'AbortError' || 
+          streamError.name === 'AbortError' ||
           streamError.message.includes('timeout') ||
           streamError.message.includes('network')
         )) {
-          console.log('网络问题导致流式中断，但已获得部分内容:', fullContent.length, '字符')
           ElMessage.warning('网络不稳定，已获得部分生成内容')
-          // 不抛出错误，返回已获得的内容
         } else {
           hasError = true
           throw streamError
@@ -419,7 +359,6 @@ class APIService {
         }
       }
 
-      // 流式生成成功，记录token使用
       const outputTokens = billingService.estimateTokens(fullContent)
       billingService.recordAPICall({
         type: options.type || 'generation',
@@ -434,7 +373,6 @@ class APIService {
       return fullContent
     } catch (error) {
       console.error('流式生成错误:', error)
-      // 只有在发生错误时才记录失败调用
       if (hasError) {
         billingService.recordAPICall({
           type: options.type || 'generation',
@@ -450,11 +388,10 @@ class APIService {
     }
   }
 
-  // 生成小说大纲
   async generateOutline(theme, keywords, template) {
     const templateInfo = template ? `\n参考模板：${template.name} - ${template.description}` : ''
     const keywordList = keywords ? `\n关键词：${keywords}` : ''
-    
+
     const prompt = `请为以下主题生成一个详细的小说大纲：
 主题：${theme}${templateInfo}${keywordList}
 
@@ -470,11 +407,10 @@ class APIService {
     return await this.generateTextStream(prompt, {}, null)
   }
 
-  // 流式生成小说大纲
   async generateOutlineStream(theme, keywords, template, onChunk = null) {
     const templateInfo = template ? `\n参考模板：${template.name} - ${template.description}` : ''
     const keywordList = keywords ? `\n关键词：${keywords}` : ''
-    
+
     const prompt = `请为以下主题生成一个详细的小说大纲：
 主题：${theme}${templateInfo}${keywordList}
 
@@ -490,12 +426,10 @@ class APIService {
     return await this.generateTextStream(prompt, {}, onChunk)
   }
 
-  // 生成章节内容
   async generateChapterContent(chapterTitle, chapterOutline, previousContent = '', template = null, characters = [], worldSettings = [], novelInfo = {}) {
     const templateInfo = template ? `\n写作风格：${template.style}\n写作提示：${template.writingTips}` : ''
     const contextInfo = previousContent ? `\n前文内容参考：${previousContent.slice(-500)}` : ''
-    
-    // 构建小说基本信息
+
     let novelBasicInfo = ''
     if (novelInfo.title || novelInfo.genre || novelInfo.intro || novelInfo.theme) {
       novelBasicInfo += '\n\n小说基本信息：'
@@ -504,8 +438,7 @@ class APIService {
       if (novelInfo.theme) novelBasicInfo += `\n- 小说主题：${novelInfo.theme}`
       if (novelInfo.intro) novelBasicInfo += `\n- 小说简介：${novelInfo.intro}`
     }
-    
-    // 构建人物信息
+
     let charactersInfo = ''
     if (characters.length > 0) {
       charactersInfo = '\n\n人物设定：'
@@ -516,8 +449,7 @@ class APIService {
         }
       })
     }
-    
-    // 构建世界观信息
+
     let worldInfo = ''
     if (worldSettings.length > 0) {
       worldInfo = '\n\n世界观设定：'
@@ -525,7 +457,7 @@ class APIService {
         worldInfo += `\n- ${setting.title}：${setting.description}`
       })
     }
-    
+
     const prompt = `请根据以下信息生成小说章节内容：
 章节标题：${chapterTitle}
 章节大纲：${chapterOutline}${novelBasicInfo}${templateInfo}${contextInfo}${charactersInfo}${worldInfo}
@@ -547,12 +479,10 @@ class APIService {
     return await this.generateTextStream(prompt, {}, null)
   }
 
-  // 流式生成章节内容
   async generateChapterContentStream(chapterTitle, chapterOutline, previousContent = '', template = null, characters = [], worldSettings = [], novelInfo = {}, onChunk = null) {
     const templateInfo = template ? `\n写作风格：${template.style}\n写作提示：${template.writingTips}` : ''
     const contextInfo = previousContent ? `\n前文内容参考：${previousContent.slice(-500)}` : ''
-    
-    // 构建小说基本信息
+
     let novelBasicInfo = ''
     if (novelInfo.title || novelInfo.genre || novelInfo.intro || novelInfo.theme) {
       novelBasicInfo += '\n\n小说基本信息：'
@@ -561,8 +491,7 @@ class APIService {
       if (novelInfo.theme) novelBasicInfo += `\n- 小说主题：${novelInfo.theme}`
       if (novelInfo.intro) novelBasicInfo += `\n- 小说简介：${novelInfo.intro}`
     }
-    
-    // 构建人物信息
+
     let charactersInfo = ''
     if (characters.length > 0) {
       charactersInfo = '\n\n人物设定：'
@@ -573,8 +502,7 @@ class APIService {
         }
       })
     }
-    
-    // 构建世界观信息
+
     let worldInfo = ''
     if (worldSettings.length > 0) {
       worldInfo = '\n\n世界观设定：'
@@ -582,7 +510,7 @@ class APIService {
         worldInfo += `\n- ${setting.title}：${setting.description}`
       })
     }
-    
+
     const prompt = `请根据以下信息生成小说章节内容：
 章节标题：${chapterTitle}
 章节大纲：${chapterOutline}${novelBasicInfo}${templateInfo}${contextInfo}${charactersInfo}${worldInfo}
@@ -604,7 +532,6 @@ class APIService {
     return await this.generateTextStream(prompt, {}, onChunk)
   }
 
-  // AI对话功能
   async chatWithAI(message, chatHistory = []) {
     const messages = [
       {
@@ -622,7 +549,7 @@ class APIService {
     ]
 
     const requestBody = {
-      model: this.config.selectedModel || this.config.defaultModel || 'gpt-3.5-turbo',
+      model: this.config.selectedModel || this.config.defaultModel || 'deepseek-chat',
       messages,
       max_tokens: this.config.maxTokens,
       temperature: 0.7
@@ -632,13 +559,12 @@ class APIService {
       body: JSON.stringify(requestBody)
     })
 
-    return response.choices[0]?.message?.content || ''
+    return response.choices?.[0]?.message?.content || ''
   }
 
-  // 生成文章摘要
   async generateSummary(content, options = {}) {
     const { length = 'medium', type = 'keypoints' } = options
-    
+
     let lengthInstruction = ''
     switch (length) {
       case 'short':
@@ -651,7 +577,7 @@ class APIService {
         lengthInstruction = '请生成200-300字的详细摘要'
         break
     }
-    
+
     let typeInstruction = ''
     switch (type) {
       case 'keypoints':
@@ -667,16 +593,15 @@ class APIService {
         typeInstruction = '重点阐述文章的主题思想和深层含义'
         break
     }
-    
+
     const prompt = `${lengthInstruction}，${typeInstruction}。\n\n文章内容：\n${content}`
-    
+
     return await this.generateTextStream(prompt, {
-      maxTokens: null, // 移除token限制
+      maxTokens: null,
       temperature: 0.3
     }, null)
   }
 
-  // 内容优化建议
   async getWritingAdvice(content) {
     const prompt = `请对以下文章内容提供写作建议：
 
@@ -691,10 +616,9 @@ ${content}
 
 建议：`
 
-    return await this.generateTextStream(prompt, { maxTokens: null }, null) // 移除token限制
+    return await this.generateTextStream(prompt, { maxTokens: null }, null)
   }
 
-  // 根据语料库生成个性化内容
   async generatePersonalizedContent(prompt, corpus) {
     const corpusText = corpus.map(item => item.content).join('\n\n')
     const personalizedPrompt = `参考以下写作风格和内容：
@@ -714,12 +638,11 @@ ${prompt}
     return await this.generateTextStream(personalizedPrompt, {}, null)
   }
 
-  // 生成通用内容
   async generateGeneralContent(keywords, template, outline, wordLimit = 500) {
     const templateInfo = template ? `\n写作风格：${template.style}\n写作提示：${template.writingTips}` : ''
     const outlineInfo = outline ? `\n参考大纲：${outline}` : ''
     const keywordList = keywords ? `\n关键词：${keywords}` : ''
-    
+
     const prompt = `请根据以下信息生成小说内容：${keywordList}${templateInfo}${outlineInfo}
 
 要求：
@@ -734,12 +657,11 @@ ${prompt}
     return await this.generateTextStream(prompt, {}, null)
   }
 
-  // 流式生成通用内容
   async generateGeneralContentStream(keywords, template, outline, wordLimit = 500, onChunk = null) {
     const templateInfo = template ? `\n写作风格：${template.style}\n写作提示：${template.writingTips}` : ''
     const outlineInfo = outline ? `\n参考大纲：${outline}` : ''
     const keywordList = keywords ? `\n关键词：${keywords}` : ''
-    
+
     const prompt = `请根据以下信息生成小说内容：${keywordList}${templateInfo}${outlineInfo}
 
 要求：
@@ -754,30 +676,19 @@ ${prompt}
     return await this.generateTextStream(prompt, {}, onChunk)
   }
 
-  // 获取可用模型列表
   getAvailableModels() {
     return this.config.models
   }
 
-  // 验证API密钥
   async validateAPIKey() {
     try {
-      const url = this.buildURL('/models')
-      const headers = this.buildHeaders()
-      
-      const response = await fetch(url, {
-        method: 'GET',
-        headers
-      })
-      
-      return response.ok
-    } catch (error) {
-      console.error('API密钥验证失败:', error)
+      const config = await backendApi.getAIConfig()
+      return config && config.api_key && config.api_key.length > 0
+    } catch {
       return false
     }
   }
 
-  // AI生成人物
   async generateCharacter(theme, characterType = '') {
     const typeInfo = characterType ? `角色类型：${characterType}` : ''
     const prompt = `请根据主题"${theme}"生成一个小说人物，${typeInfo}
@@ -811,7 +722,6 @@ ${prompt}
     }
   }
 
-  // AI生成世界观设定
   async generateWorldSetting(theme, settingType = '') {
     const typeInfo = settingType ? `设定类型：${settingType}` : ''
     const prompt = `请根据主题"${theme}"生成一个小说世界观设定，${typeInfo}
@@ -844,7 +754,6 @@ ${prompt}
     }
   }
 
-  // AI文章分析
   async analyzeArticle(content) {
     try {
       const prompt = `请对以下文章进行深度分析，并以JSON格式返回分析结果：
@@ -874,7 +783,7 @@ ${content}
 }`
 
       const requestBody = {
-        model: this.config.model,
+        model: this.config.selectedModel || this.config.defaultModel || 'deepseek-chat',
         messages: [
           {
             role: 'system',
@@ -889,35 +798,29 @@ ${content}
         temperature: 0.3
       }
 
-      console.log('发送文章分析请求:', requestBody)
-      
       const url = this.buildURL('/chat/completions')
       const headers = this.buildHeaders()
-      
+
       const response = await fetch(url, {
         method: 'POST',
         headers,
         body: JSON.stringify(requestBody)
       })
-      
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
-      
+
       const data = await response.json()
-      console.log('文章分析响应:', data)
-      
+
       if (data.choices && data.choices[0] && data.choices[0].message) {
         const analysisText = data.choices[0].message.content.trim()
-        
+
         try {
-          // 尝试解析JSON响应
           const analysis = JSON.parse(analysisText)
-          console.log('解析的分析结果:', analysis)
           return analysis
         } catch (parseError) {
           console.error('解析AI分析结果失败:', parseError)
-          // 如果解析失败，返回基础分析结果
           return {
             sentiment: '中性',
             tags: ['AI分析'],

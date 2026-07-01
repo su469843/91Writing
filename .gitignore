@@ -1,2 +1,7 @@
 node_modules/
 .history/
+.env
+.env.local
+.env.*.local
+*.local
+secrets.*
