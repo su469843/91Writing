@@ -268,6 +268,7 @@ const saveConfig = async () => {
   validating.value = true
   try {
     store.updateApiConfig(form)
+    await store.saveApiConfigToBackend()
     const isValid = await store.validateApiKey()
     if (isValid) {
       ElMessage.success('配置保存成功')
@@ -286,6 +287,7 @@ const testConnection = async () => {
   validating.value = true
   try {
     store.updateApiConfig(form)
+    await store.saveApiConfigToBackend()
     const isValid = await store.validateApiKey()
     if (isValid) ElMessage.success('连接测试成功')
     else ElMessage.error('连接测试失败')

@@ -19,6 +19,7 @@ class APIService {
     try {
       const config = await backendApi.getAIConfig()
       if (config) {
+        this.config.baseURL = config.base_url || 'https://api.deepseek.com'
         this.config.selectedModel = config.model || ''
         this.config.maxTokens = config.max_tokens || 4096
         this.config.temperature = config.temperature || 0.7
@@ -34,19 +35,21 @@ class APIService {
 
   async updateConfig(newConfig) {
     Object.assign(this.config, newConfig)
-    if (newConfig.apiKey || newConfig.selectedModel || newConfig.baseURL) {
-      try {
-        await backendApi.saveAIConfig({
-          provider: 'deepseek',
-          api_key: newConfig.apiKey || '',
-          base_url: newConfig.baseURL || 'https://api.deepseek.com',
-          model: newConfig.selectedModel || this.config.selectedModel,
-          max_tokens: newConfig.maxTokens || this.config.maxTokens,
-          temperature: newConfig.temperature || this.config.temperature
-        })
-      } catch (error) {
-        console.error('保存 API 配置到后端失败:', error)
-      }
+  }
+
+  async saveConfig(newConfig) {
+    Object.assign(this.config, newConfig)
+    try {
+      await backendApi.saveAIConfig({
+        provider: 'deepseek',
+        api_key: newConfig.apiKey || '',
+        base_url: newConfig.baseURL || 'https://api.deepseek.com',
+        model: newConfig.selectedModel || this.config.selectedModel,
+        max_tokens: newConfig.maxTokens || this.config.maxTokens,
+        temperature: newConfig.temperature || this.config.temperature
+      })
+    } catch (error) {
+      console.error('保存 API 配置到后端失败:', error)
     }
   }
 
