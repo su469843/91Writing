@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import apiService from '../services/api.js'
+import backendApi from '../services/backendApi.js'
 
 export const useNovelStore = defineStore('novel', () => {
   // 状态
@@ -19,13 +20,16 @@ export const useNovelStore = defineStore('novel', () => {
   const keywords = ref('')
   const isGenerating = ref(false)
   const corpus = ref([])
-  
 
-  
+  // 后端数据
+  const novels = ref([])
+  const currentNovelId = ref(null)
+  const currentChapterId = ref(null)
+
   // 写作工具数据
   const characters = ref([])
   const worldSettings = ref([])
-  
+
   // API配置 - 单一配置（支持任意 OpenAI 格式接口）
   const apiConfig = ref({
     apiKey: '',
@@ -43,15 +47,36 @@ export const useNovelStore = defineStore('novel', () => {
     return apiConfig.value
   }
 
-  // 初始化时加载API配置
-  const initializeApiConfig = () => {
+  // 初始化时加载API配置（优先从后端，降级到本地）
+  const initializeApiConfig = async () => {
     try {
-      // 优先读取新的单一配置键
+      // 尝试从后端加载配置
+      const token = localStorage.getItem('auth_token')
+      if (token) {
+        try {
+          const config = await backendApi.getAIConfig()
+          if (config) {
+            apiConfig.value = {
+              apiKey: config.api_key,
+              baseURL: config.base_url || 'https://api.openai.com/v1',
+              selectedModel: config.model || 'gpt-3.5-turbo',
+              maxTokens: config.max_tokens || 2000000,
+              temperature: config.temperature || 0.7
+            }
+            isApiConfigured.value = true
+            apiService.updateConfig(apiConfig.value)
+            return
+          }
+        } catch (e) {
+          console.log('后端配置加载失败，使用本地配置')
+        }
+      }
+
+      // 降级到本地配置
       const saved = localStorage.getItem('apiConfig')
       if (saved) {
         apiConfig.value = { ...apiConfig.value, ...JSON.parse(saved) }
       } else {
-        // 向后兼容：迁移旧的自定义配置
         const legacyCustom = localStorage.getItem('customApiConfig')
         if (legacyCustom) {
           apiConfig.value = { ...apiConfig.value, ...JSON.parse(legacyCustom) }
@@ -65,7 +90,23 @@ export const useNovelStore = defineStore('novel', () => {
       console.error('初始化API配置失败:', error)
     }
   }
-  
+
+  // 保存API配置到后端
+  const saveApiConfigToBackend = async () => {
+    try {
+      await backendApi.saveAIConfig({
+        provider: 'openai',
+        api_key: apiConfig.value.apiKey,
+        base_url: apiConfig.value.baseURL,
+        model: apiConfig.value.selectedModel,
+        max_tokens: apiConfig.value.maxTokens,
+        temperature: apiConfig.value.temperature
+      })
+    } catch (error) {
+      console.error('保存API配置到后端失败:', error)
+    }
+  }
+
   // 立即执行初始化
   initializeApiConfig()
   
@@ -669,7 +710,299 @@ export const useNovelStore = defineStore('novel', () => {
     }
   }
 
+  // ========== 后端 API 集成方法 ==========
 
+  // 加载小说列表
+  const loadNovelsFromBackend = async () => {
+    try {
+      const data = await backendApi.getNovels()
+      novels.value = data
+      return data
+    } catch (error) {
+      console.error('加载小说列表失败:', error)
+      throw error
+    }
+  }
+
+  // 加载单个小说
+  const loadNovelFromBackend = async (novelId) => {
+    try {
+      const data = await backendApi.getNovel(novelId)
+      currentNovelId.value = novelId
+      return data
+    } catch (error) {
+      console.error('加载小说失败:', error)
+      throw error
+    }
+  }
+
+  // 创建小说
+  const createNovelInBackend = async (novelData) => {
+    try {
+      const data = await backendApi.createNovel(novelData)
+      await loadNovelsFromBackend()
+      return data
+    } catch (error) {
+      console.error('创建小说失败:', error)
+      throw error
+    }
+  }
+
+  // 更新小说
+  const updateNovelInBackend = async (novelId, novelData) => {
+    try {
+      const data = await backendApi.updateNovel(novelId, novelData)
+      await loadNovelsFromBackend()
+      return data
+    } catch (error) {
+      console.error('更新小说失败:', error)
+      throw error
+    }
+  }
+
+  // 删除小说
+  const deleteNovelInBackend = async (novelId) => {
+    try {
+      await backendApi.deleteNovel(novelId)
+      await loadNovelsFromBackend()
+    } catch (error) {
+      console.error('删除小说失败:', error)
+      throw error
+    }
+  }
+
+  // 加载章节列表
+  const loadChaptersFromBackend = async (novelId) => {
+    try {
+      const data = await backendApi.getChapters(novelId)
+      chapters.value = data
+      return data
+    } catch (error) {
+      console.error('加载章节列表失败:', error)
+      throw error
+    }
+  }
+
+  // 创建章节
+  const createChapterInBackend = async (novelId, chapterData) => {
+    try {
+      const data = await backendApi.createChapter(novelId, chapterData)
+      await loadChaptersFromBackend(novelId)
+      return data
+    } catch (error) {
+      console.error('创建章节失败:', error)
+      throw error
+    }
+  }
+
+  // 更新章节
+  const updateChapterInBackend = async (chapterId, chapterData) => {
+    try {
+      const data = await backendApi.updateChapter(chapterId, chapterData)
+      if (currentNovelId.value) {
+        await loadChaptersFromBackend(currentNovelId.value)
+      }
+      return data
+    } catch (error) {
+      console.error('更新章节失败:', error)
+      throw error
+    }
+  }
+
+  // 删除章节
+  const deleteChapterInBackend = async (chapterId) => {
+    try {
+      await backendApi.deleteChapter(chapterId)
+      if (currentNovelId.value) {
+        await loadChaptersFromBackend(currentNovelId.value)
+      }
+    } catch (error) {
+      console.error('删除章节失败:', error)
+      throw error
+    }
+  }
+
+  // 加载角色列表
+  const loadCharactersFromBackend = async (novelId) => {
+    try {
+      const data = await backendApi.getCharacters(novelId)
+      characters.value = data
+      return data
+    } catch (error) {
+      console.error('加载角色列表失败:', error)
+      throw error
+    }
+  }
+
+  // 创建角色
+  const createCharacterInBackend = async (novelId, characterData) => {
+    try {
+      const data = await backendApi.createCharacter(novelId, characterData)
+      await loadCharactersFromBackend(novelId)
+      return data
+    } catch (error) {
+      console.error('创建角色失败:', error)
+      throw error
+    }
+  }
+
+  // 更新角色
+  const updateCharacterInBackend = async (characterId, characterData) => {
+    try {
+      const data = await backendApi.updateCharacter(characterId, characterData)
+      if (currentNovelId.value) {
+        await loadCharactersFromBackend(currentNovelId.value)
+      }
+      return data
+    } catch (error) {
+      console.error('更新角色失败:', error)
+      throw error
+    }
+  }
+
+  // 删除角色
+  const deleteCharacterInBackend = async (characterId) => {
+    try {
+      await backendApi.deleteCharacter(characterId)
+      if (currentNovelId.value) {
+        await loadCharactersFromBackend(currentNovelId.value)
+      }
+    } catch (error) {
+      console.error('删除角色失败:', error)
+      throw error
+    }
+  }
+
+  // 加载世界观设定
+  const loadWorldSettingsFromBackend = async (novelId) => {
+    try {
+      const data = await backendApi.getWorldSettings(novelId)
+      worldSettings.value = data
+      return data
+    } catch (error) {
+      console.error('加载世界观设定失败:', error)
+      throw error
+    }
+  }
+
+  // 创建世界观设定
+  const createWorldSettingInBackend = async (novelId, settingData) => {
+    try {
+      const data = await backendApi.createWorldSetting(novelId, settingData)
+      await loadWorldSettingsFromBackend(novelId)
+      return data
+    } catch (error) {
+      console.error('创建世界观设定失败:', error)
+      throw error
+    }
+  }
+
+  // 更新世界观设定
+  const updateWorldSettingInBackend = async (settingId, settingData) => {
+    try {
+      const data = await backendApi.updateWorldSetting(settingId, settingData)
+      if (currentNovelId.value) {
+        await loadWorldSettingsFromBackend(currentNovelId.value)
+      }
+      return data
+    } catch (error) {
+      console.error('更新世界观设定失败:', error)
+      throw error
+    }
+  }
+
+  // 删除世界观设定
+  const deleteWorldSettingInBackend = async (settingId) => {
+    try {
+      await backendApi.deleteWorldSetting(settingId)
+      if (currentNovelId.value) {
+        await loadWorldSettingsFromBackend(currentNovelId.value)
+      }
+    } catch (error) {
+      console.error('删除世界观设定失败:', error)
+      throw error
+    }
+  }
+
+  // 加载写作目标
+  const loadGoalsFromBackend = async () => {
+    try {
+      const data = await backendApi.getGoals()
+      return data
+    } catch (error) {
+      console.error('加载写作目标失败:', error)
+      throw error
+    }
+  }
+
+  // 更新写作目标
+  const updateGoalsInBackend = async (goalsData) => {
+    try {
+      const data = await backendApi.updateGoals(goalsData)
+      return data
+    } catch (error) {
+      console.error('更新写作目标失败:', error)
+      throw error
+    }
+  }
+
+  // 记录写作活动
+  const recordActivityInBackend = async (wordCount) => {
+    try {
+      const data = await backendApi.recordActivity(wordCount)
+      return data
+    } catch (error) {
+      console.error('记录写作活动失败:', error)
+      throw error
+    }
+  }
+
+  // 加载提示词模板
+  const loadPromptsFromBackend = async (category = null) => {
+    try {
+      const data = await backendApi.getPrompts(category)
+      templates.value = data
+      return data
+    } catch (error) {
+      console.error('加载提示词模板失败:', error)
+      throw error
+    }
+  }
+
+  // 创建提示词模板
+  const createPromptInBackend = async (promptData) => {
+    try {
+      const data = await backendApi.createPrompt(promptData)
+      await loadPromptsFromBackend()
+      return data
+    } catch (error) {
+      console.error('创建提示词模板失败:', error)
+      throw error
+    }
+  }
+
+  // 更新提示词模板
+  const updatePromptInBackend = async (promptId, promptData) => {
+    try {
+      const data = await backendApi.updatePrompt(promptId, promptData)
+      await loadPromptsFromBackend()
+      return data
+    } catch (error) {
+      console.error('更新提示词模板失败:', error)
+      throw error
+    }
+  }
+
+  // 删除提示词模板
+  const deletePromptInBackend = async (promptId) => {
+    try {
+      await backendApi.deletePrompt(promptId)
+      await loadPromptsFromBackend()
+    } catch (error) {
+      console.error('删除提示词模板失败:', error)
+      throw error
+    }
+  }
 
   // 通用内容生成方法
   const generateContent = async (prompt, onChunk = null) => {
@@ -783,6 +1116,36 @@ export const useNovelStore = defineStore('novel', () => {
     importCorpus,
     setGeneratingSummary,
     setArticleSummary,
-    generateContent
+    generateContent,
+
+    // 后端 API 方法
+    novels,
+    currentNovelId,
+    currentChapterId,
+    loadNovelsFromBackend,
+    loadNovelFromBackend,
+    createNovelInBackend,
+    updateNovelInBackend,
+    deleteNovelInBackend,
+    loadChaptersFromBackend,
+    createChapterInBackend,
+    updateChapterInBackend,
+    deleteChapterInBackend,
+    loadCharactersFromBackend,
+    createCharacterInBackend,
+    updateCharacterInBackend,
+    deleteCharacterInBackend,
+    loadWorldSettingsFromBackend,
+    createWorldSettingInBackend,
+    updateWorldSettingInBackend,
+    deleteWorldSettingInBackend,
+    loadGoalsFromBackend,
+    updateGoalsInBackend,
+    recordActivityInBackend,
+    loadPromptsFromBackend,
+    createPromptInBackend,
+    updatePromptInBackend,
+    deletePromptInBackend,
+    saveApiConfigToBackend
   }
 })

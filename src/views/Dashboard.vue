@@ -112,10 +112,11 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useNovelStore } from '@/stores/novel'
+import { useAuthStore } from '@/stores/auth'
 import {
   House, Document, ChatLineSquare, Collection, Notebook, Aim,
   CreditCard, Setting, Key, Tools, EditPen, DataAnalysis,
-  Expand, Fold, Bell, Cpu
+  Expand, Fold, Bell, Cpu, SwitchButton
 } from '@element-plus/icons-vue'
 import ApiConfig from '@/components/ApiConfig.vue'
 import AnnouncementDialog from '@/components/AnnouncementDialog.vue'
@@ -124,6 +125,7 @@ import { getLatestAnnouncement } from '@/config/announcements.js'
 const router = useRouter()
 const route = useRoute()
 const novelStore = useNovelStore()
+const authStore = useAuthStore()
 
 const isCollapse = ref(false)
 const showApiConfig = ref(false)
@@ -227,7 +229,13 @@ const handleStorageChange = (event) => {
   }
 }
 
-onMounted(() => {
+const handleLogout = () => {
+  authStore.logout()
+  router.push('/auth')
+}
+
+onMounted(async () => {
+  await authStore.initAuth()
   initializeModelSelector()
   window.addEventListener('storage', handleStorageChange)
 })
