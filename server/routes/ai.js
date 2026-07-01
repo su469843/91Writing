@@ -2,6 +2,7 @@ const express = require('express');
 const axios = require('axios');
 const db = require('../config/database');
 const { authMiddleware } = require('../middleware/auth');
+const { encrypt, decrypt } = require('../config/encryption');
 
 const router = express.Router();
 
@@ -18,10 +19,11 @@ router.get('/config', (req, res) => {
       return res.json(null);
     }
 
-    // 不返回完整的 API key
+    const plainKey = decrypt(config.api_key);
+
     const safeConfig = {
       ...config,
-      api_key: config.api_key.substring(0, 8) + '***'
+      api_key: plainKey ? plainKey.substring(0, 8) + '***' : ''
     };
 
     res.json(safeConfig);
@@ -40,6 +42,7 @@ router.post('/config', (req, res) => {
       return res.status(400).json({ error: '提供商和 API key 不能为空' });
     }
 
+    const encryptedKey = encrypt(api_key);
     const existing = db.prepare('SELECT * FROM api_configs WHERE user_id = ?')
       .get(req.user.id);
 
@@ -49,12 +52,12 @@ router.post('/config', (req, res) => {
         SET provider = ?, api_key = ?, base_url = ?, model = ?, 
             max_tokens = ?, temperature = ?, updated_at = CURRENT_TIMESTAMP
         WHERE user_id = ?
-      `).run(provider, api_key, base_url, model, max_tokens || 2000, temperature || 0.7, req.user.id);
+      `).run(provider, encryptedKey, base_url, model, max_tokens || 2000, temperature || 0.7, req.user.id);
     } else {
       db.prepare(`
         INSERT INTO api_configs (user_id, provider, api_key, base_url, model, max_tokens, temperature)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(req.user.id, provider, api_key, base_url, model, max_tokens || 2000, temperature || 0.7);
+      `).run(req.user.id, provider, encryptedKey, base_url, model, max_tokens || 2000, temperature || 0.7);
     }
 
     res.json({ message: 'API 配置保存成功' });
@@ -72,6 +75,11 @@ router.post('/chat/completions', async (req, res) => {
 
     if (!config) {
       return res.status(400).json({ error: '请先配置 API' });
+    }
+
+    const apiKey = decrypt(config.api_key);
+    if (!apiKey) {
+      return res.status(400).json({ error: 'API 密钥解密失败，请重新配置' });
     }
 
     const { messages, stream = false } = req.body;
@@ -92,7 +100,7 @@ router.post('/chat/completions', async (req, res) => {
       stream
     }, {
       headers: {
-        'Authorization': `Bearer ${config.api_key}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
       timeout: 60000,
@@ -134,6 +142,11 @@ router.post('/generate/outline', async (req, res) => {
       return res.status(400).json({ error: '请先配置 API' });
     }
 
+    const apiKey = decrypt(config.api_key);
+    if (!apiKey) {
+      return res.status(400).json({ error: 'API 密钥解密失败，请重新配置' });
+    }
+
     const { keywords, genre, template } = req.body;
 
     if (!keywords) {
@@ -165,7 +178,7 @@ ${template ? `模板要求：${template}` : ''}
       temperature: config.temperature || 0.7
     }, {
       headers: {
-        'Authorization': `Bearer ${config.api_key}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
       timeout: 60000
@@ -191,6 +204,11 @@ router.post('/generate/chapter', async (req, res) => {
 
     if (!config) {
       return res.status(400).json({ error: '请先配置 API' });
+    }
+
+    const apiKey = decrypt(config.api_key);
+    if (!apiKey) {
+      return res.status(400).json({ error: 'API 密钥解密失败，请重新配置' });
     }
 
     const { novelId, chapterTitle, outline, previousContent, direction, wordCount } = req.body;
@@ -230,7 +248,7 @@ router.post('/generate/chapter', async (req, res) => {
       temperature: config.temperature || 0.7
     }, {
       headers: {
-        'Authorization': `Bearer ${config.api_key}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
       timeout: 60000
