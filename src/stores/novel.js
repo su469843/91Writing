@@ -26,17 +26,8 @@ export const useNovelStore = defineStore('novel', () => {
   const characters = ref([])
   const worldSettings = ref([])
   
-  // API配置 - 分离官方和自定义配置
-  const officialApiConfig = ref({
-    apiKey: '',
-    baseURL: 'https://ai.91hub.vip/v1',
-    selectedModel: 'claude-4-sonnet',
-    maxTokens: 2000000,
-    unlimitedTokens: false,
-    temperature: 0.7
-  })
-  
-  const customApiConfig = ref({
+  // API配置 - 单一配置（支持任意 OpenAI 格式接口）
+  const apiConfig = ref({
     apiKey: '',
     baseURL: 'https://api.openai.com/v1',
     selectedModel: 'gpt-3.5-turbo',
@@ -44,46 +35,32 @@ export const useNovelStore = defineStore('novel', () => {
     unlimitedTokens: false,
     temperature: 0.7
   })
-  
-  const currentConfigType = ref('official') // 'official' 或 'custom'
+
   const isApiConfigured = ref(false)
-  
-  // 获取当前活动的API配置
+
+  // 获取当前API配置
   const getCurrentApiConfig = () => {
-    return currentConfigType.value === 'official' ? officialApiConfig.value : customApiConfig.value
+    return apiConfig.value
   }
-  
-  // 初始化时检查API配置
+
+  // 初始化时加载API配置
   const initializeApiConfig = () => {
     try {
-      // 加载配置类型
-      const savedType = localStorage.getItem('apiConfigType') || 'official'
-      currentConfigType.value = savedType
-      
-      // 加载官方配置
-      const savedOfficial = localStorage.getItem('officialApiConfig')
-      if (savedOfficial) {
-        const config = JSON.parse(savedOfficial)
-        // 官方配置只允许覆盖API密钥等参数，baseURL始终保持固定
-        officialApiConfig.value = {
-          ...officialApiConfig.value,
-          ...config,
-          baseURL: 'https://ai.91hub.vip/v1' // 强制保持官方地址
+      // 优先读取新的单一配置键
+      const saved = localStorage.getItem('apiConfig')
+      if (saved) {
+        apiConfig.value = { ...apiConfig.value, ...JSON.parse(saved) }
+      } else {
+        // 向后兼容：迁移旧的自定义配置
+        const legacyCustom = localStorage.getItem('customApiConfig')
+        if (legacyCustom) {
+          apiConfig.value = { ...apiConfig.value, ...JSON.parse(legacyCustom) }
+          localStorage.setItem('apiConfig', JSON.stringify(apiConfig.value))
         }
       }
-      
-      // 加载自定义配置
-      const savedCustom = localStorage.getItem('customApiConfig')
-      if (savedCustom) {
-        const config = JSON.parse(savedCustom)
-        customApiConfig.value = { ...customApiConfig.value, ...config }
-      }
-      
-      // 使用当前配置类型的配置
-      const currentConfig = getCurrentApiConfig()
-      isApiConfigured.value = !!currentConfig.apiKey
-      apiService.updateConfig(currentConfig)
-      
+
+      isApiConfigured.value = !!apiConfig.value.apiKey
+      apiService.updateConfig(apiConfig.value)
     } catch (error) {
       console.error('初始化API配置失败:', error)
     }
@@ -314,37 +291,10 @@ export const useNovelStore = defineStore('novel', () => {
   }
 
   // API配置方法
-  const updateApiConfig = (config, configType = null) => {
-    // 如果没有指定类型，使用当前配置类型
-    const targetType = configType || currentConfigType.value
-    
-    if (targetType === 'official') {
-      // 官方配置：强制保持官方API地址
-      officialApiConfig.value = { 
-        ...officialApiConfig.value, 
-        ...config,
-        baseURL: 'https://ai.91hub.vip/v1'
-      }
-    } else {
-      // 自定义配置：允许所有参数更新
-      customApiConfig.value = { ...customApiConfig.value, ...config }
-    }
-    
-    // 更新apiService配置为当前活动配置
-    const currentConfig = getCurrentApiConfig()
-    apiService.updateConfig(currentConfig)
-    isApiConfigured.value = !!currentConfig.apiKey
-  }
-  
-  // 切换配置类型
-  const switchConfigType = (type) => {
-    currentConfigType.value = type
-    localStorage.setItem('apiConfigType', type)
-    
-    // 更新apiService配置
-    const currentConfig = getCurrentApiConfig()
-    apiService.updateConfig(currentConfig)
-    isApiConfigured.value = !!currentConfig.apiKey
+  const updateApiConfig = (config) => {
+    apiConfig.value = { ...apiConfig.value, ...config }
+    apiService.updateConfig(apiConfig.value)
+    isApiConfigured.value = !!apiConfig.value.apiKey
   }
 
   const validateApiKey = async () => {
@@ -775,9 +725,7 @@ export const useNovelStore = defineStore('novel', () => {
     characters,
     worldSettings,
     articleStats,
-    officialApiConfig,
-    customApiConfig,
-    currentConfigType,
+    apiConfig,
     isApiConfigured,
     articleSummary,
     isGeneratingSummary,
@@ -819,7 +767,6 @@ export const useNovelStore = defineStore('novel', () => {
     
     // API相关方法
     updateApiConfig,
-    switchConfigType,
     getCurrentApiConfig,
     validateApiKey,
     generateOutlineWithAPI,
