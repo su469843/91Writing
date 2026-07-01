@@ -52,7 +52,6 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ steps.image.outputs.image_name }}
           tags: |
             type=raw,value=latest
-            type=sha,format=short
             type=raw,value=${{ steps.version.outputs.version }}
 
       - name: Build and push Docker image
