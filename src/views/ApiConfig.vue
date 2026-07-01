@@ -621,8 +621,8 @@ const testConnection = async (config) => {
   ElMessage.info('正在测试连接...')
   
   try {
-    // 先更新 store 中的配置为当前测试的配置
-    store.updateApiConfig({
+    // 先等待后端保存完成，再测试
+    await store.updateApiConfig({
       apiKey: config.apiKey,
       baseURL: `https://${config.apiUrl.replace(/^https?:\/\//, '')}`,
       selectedModel: config.model,

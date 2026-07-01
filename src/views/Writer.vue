@@ -2144,8 +2144,7 @@ const novelStore = useNovelStore()
 
 // 检查API配置
 const checkApiConfig = () => {
-  const config = apiService.getConfig()
-  if (!config.apiKey || !config.baseURL) {
+  if (!novelStore.isApiConfigured) {
     ElMessageBox.confirm(
       '检测到您还未配置AI API，需要先配置API密钥才能使用AI功能。是否前往配置？',
       '需要配置API',

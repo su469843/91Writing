@@ -76,7 +76,7 @@ export const useNovelStore = defineStore('novel', () => {
               temperature: config.temperature || 0.7
             }
             isApiConfigured.value = !!localApiKey
-            apiService.updateConfig(apiConfig.value)
+            apiService.updateConfigLocally(apiConfig.value)
             backendLoaded = true
           }
         } catch (e) {
@@ -97,7 +97,7 @@ export const useNovelStore = defineStore('novel', () => {
         }
 
         isApiConfigured.value = !!apiConfig.value.apiKey
-        apiService.updateConfig(apiConfig.value)
+        apiService.updateConfigLocally(apiConfig.value)
       }
     } catch (error) {
       console.error('初始化API配置失败:', error)
@@ -107,8 +107,17 @@ export const useNovelStore = defineStore('novel', () => {
   // 保存API配置到后端
   const saveApiConfigToBackend = async () => {
     try {
+      // 从 baseURL 中推断 provider
+      const url = apiConfig.value.baseURL || 'https://api.openai.com/v1'
+      let provider = 'openai'
+      if (url.includes('deepseek')) provider = 'deepseek'
+      else if (url.includes('anthropic')) provider = 'claude'
+      else if (url.includes('dashscope') || url.includes('aliyuncs')) provider = 'qwen'
+      else if (url.includes('bigmodel')) provider = 'zhipu'
+      else if (url.includes('baidu') || url.includes('baidubce')) provider = 'wenxin'
+
       await backendApi.saveAIConfig({
-        provider: 'openai',
+        provider,
         api_key: apiConfig.value.apiKey,
         base_url: apiConfig.value.baseURL,
         model: apiConfig.value.selectedModel,
@@ -345,9 +354,15 @@ export const useNovelStore = defineStore('novel', () => {
   }
 
   // API配置方法
-  const updateApiConfig = (config) => {
+  // skipBackendSave=true 用于初始化加载，不重复保存到后端
+  const updateApiConfig = async (config, skipBackendSave = false) => {
     apiConfig.value = { ...apiConfig.value, ...config }
-    apiService.updateConfig(apiConfig.value)
+    if (!skipBackendSave) {
+      await apiService.updateConfig(apiConfig.value)
+    } else {
+      // 仅更新本地 config，不触发后端保存
+      apiService.updateConfigLocally(apiConfig.value)
+    }
     isApiConfigured.value = !!apiConfig.value.apiKey
   }
 

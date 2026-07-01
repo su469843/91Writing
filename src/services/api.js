@@ -62,6 +62,11 @@ class APIService {
     }
   }
 
+  // 仅更新本地 config，不触发后端保存（用于初始化加载）
+  updateConfigLocally(newConfig) {
+    Object.assign(this.config, newConfig)
+  }
+
   async saveConfig(newConfig) {
     Object.assign(this.config, newConfig)
     const url = newConfig.baseURL || this.config.baseURL || 'https://api.openai.com/v1'

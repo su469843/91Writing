@@ -204,8 +204,12 @@ const openAnnouncement = () => {
 const handleAnnouncementClose = () => { showAnnouncement.value = false }
 
 // 切换模型：直接更新单一配置
-const handleModelChange = (modelId) => {
-  novelStore.updateApiConfig({ selectedModel: modelId })
+const handleModelChange = async (modelId) => {
+  try {
+    await novelStore.updateApiConfig({ selectedModel: modelId })
+  } catch (e) {
+    // 模型切换时后端保存失败不影响前端体验
+  }
   const model = availableModels.value.find(m => m.id === modelId)
   if (!novelStore.apiConfig.apiKey) {
     showApiConfig.value = true

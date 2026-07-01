@@ -267,8 +267,8 @@ const saveConfig = async () => {
   if (!form.baseURL) { ElMessage.warning('请输入 API 地址'); return }
   validating.value = true
   try {
-    store.updateApiConfig(form)
-    await store.saveApiConfigToBackend()
+    // 先等待后端保存完成，再验证
+    await store.updateApiConfig(form)
     const isValid = await store.validateApiKey()
     if (isValid) {
       ElMessage.success('配置保存成功')
@@ -286,8 +286,8 @@ const testConnection = async () => {
   if (!form.apiKey) { ElMessage.warning('请先输入 API 密钥'); return }
   validating.value = true
   try {
-    store.updateApiConfig(form)
-    await store.saveApiConfigToBackend()
+    // 先等待后端保存完成，再测试
+    await store.updateApiConfig(form)
     const isValid = await store.validateApiKey()
     if (isValid) ElMessage.success('连接测试成功')
     else ElMessage.error('连接测试失败')
@@ -327,7 +327,7 @@ const loadSavedConfig = () => {
       try { Object.assign(form, JSON.parse(legacy)) } catch (e) { /* ignore */ }
     }
   }
-  store.updateApiConfig(form)
+  store.updateApiConfig(form, true) // 初始化加载，跳过后端保存
 }
 
 onMounted(() => {
