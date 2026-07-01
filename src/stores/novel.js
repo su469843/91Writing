@@ -75,7 +75,8 @@ export const useNovelStore = defineStore('novel', () => {
               maxTokens: config.max_tokens || 2000000,
               temperature: config.temperature || 0.7
             }
-            isApiConfigured.value = !!localApiKey
+            // 后端有配置即视为已配置，加密的 key 在后端存储
+            isApiConfigured.value = true
             apiService.updateConfigLocally(apiConfig.value)
             backendLoaded = true
           }
@@ -358,12 +359,14 @@ export const useNovelStore = defineStore('novel', () => {
   const updateApiConfig = async (config, skipBackendSave = false) => {
     apiConfig.value = { ...apiConfig.value, ...config }
     if (!skipBackendSave) {
-      await apiService.updateConfig(apiConfig.value)
+      apiService.updateConfig(apiConfig.value)
     } else {
       // 仅更新本地 config，不触发后端保存
       apiService.updateConfigLocally(apiConfig.value)
     }
-    isApiConfigured.value = !!apiConfig.value.apiKey
+    if ('apiKey' in config) {
+      isApiConfigured.value = !!apiConfig.value.apiKey
+    }
   }
 
   const validateApiKey = async () => {

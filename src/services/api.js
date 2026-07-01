@@ -35,31 +35,6 @@ class APIService {
 
   async updateConfig(newConfig) {
     Object.assign(this.config, newConfig)
-    if (newConfig.apiKey || newConfig.selectedModel || newConfig.baseURL) {
-      // 从 baseURL 中推断 provider 名称
-      const url = newConfig.baseURL || this.config.baseURL || 'https://api.openai.com/v1'
-      let provider = 'openai'
-      if (url.includes('deepseek')) provider = 'deepseek'
-      else if (url.includes('anthropic')) provider = 'claude'
-      else if (url.includes('dashscope') || url.includes('aliyuncs')) provider = 'qwen'
-      else if (url.includes('bigmodel')) provider = 'zhipu'
-      else if (url.includes('baidu') || url.includes('baidubce')) provider = 'wenxin'
-
-      try {
-        await backendApi.saveAIConfig({
-          provider,
-          api_key: newConfig.apiKey || '',
-          base_url: newConfig.baseURL || 'https://api.openai.com/v1',
-          model: newConfig.selectedModel || this.config.selectedModel,
-          max_tokens: newConfig.maxTokens || this.config.maxTokens,
-          temperature: newConfig.temperature || this.config.temperature
-        })
-      } catch (error) {
-        console.error('保存 API 配置到后端失败:', error)
-        // 向上传播错误，让调用方可以处理
-        throw error
-      }
-    }
   }
 
   // 仅更新本地 config，不触发后端保存（用于初始化加载）
