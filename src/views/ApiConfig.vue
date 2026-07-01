@@ -431,10 +431,11 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { 
-  Connection, Check, CircleCheck, Warning, Star, Plus,
+import { Connection, Check, CircleCheck, Warning, Star, Plus,
   Delete, Download, Upload, RefreshLeft
 } from '@element-plus/icons-vue'
+import { useNovelStore } from '../stores/novel.js'
+const store = useNovelStore()
 
 // 响应式数据
 const activeTab = ref('1')
@@ -619,17 +620,29 @@ const testConnection = async (config) => {
   config.status = 'connecting'
   ElMessage.info('正在测试连接...')
   
-  // 模拟连接测试
-  setTimeout(() => {
-    const success = Math.random() > 0.3 // 70% 成功率
-    config.status = success ? 'connected' : 'error'
+  try {
+    // 先更新 store 中的配置为当前测试的配置
+    store.updateApiConfig({
+      apiKey: config.apiKey,
+      baseURL: `https://${config.apiUrl.replace(/^https?:\/\//, '')}`,
+      selectedModel: config.model,
+      maxTokens: config.maxTokens || 4096,
+      temperature: config.temperature || 0.7
+    })
     
-    if (success) {
+    // 使用真实的 validateApiKey 测试连接
+    const isValid = await store.validateApiKey()
+    config.status = isValid ? 'connected' : 'error'
+    
+    if (isValid) {
       ElMessage.success(`${config.name} 连接测试成功`)
     } else {
-      ElMessage.error(`${config.name} 连接测试失败`)
+      ElMessage.error(`${config.name} 连接测试失败，请检查API密钥和地址`)
     }
-  }, 2000)
+  } catch (error) {
+    config.status = 'error'
+    ElMessage.error(`${config.name} 连接测试失败：${error.message}`)
+  }
 }
 
 const testAllConnections = async () => {

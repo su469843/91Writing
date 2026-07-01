@@ -35,21 +35,55 @@ class APIService {
 
   async updateConfig(newConfig) {
     Object.assign(this.config, newConfig)
+    if (newConfig.apiKey || newConfig.selectedModel || newConfig.baseURL) {
+      // 从 baseURL 中推断 provider 名称
+      const url = newConfig.baseURL || this.config.baseURL || 'https://api.openai.com/v1'
+      let provider = 'openai'
+      if (url.includes('deepseek')) provider = 'deepseek'
+      else if (url.includes('anthropic')) provider = 'claude'
+      else if (url.includes('dashscope') || url.includes('aliyuncs')) provider = 'qwen'
+      else if (url.includes('bigmodel')) provider = 'zhipu'
+      else if (url.includes('baidu') || url.includes('baidubce')) provider = 'wenxin'
+
+      try {
+        await backendApi.saveAIConfig({
+          provider,
+          api_key: newConfig.apiKey || '',
+          base_url: newConfig.baseURL || 'https://api.openai.com/v1',
+          model: newConfig.selectedModel || this.config.selectedModel,
+          max_tokens: newConfig.maxTokens || this.config.maxTokens,
+          temperature: newConfig.temperature || this.config.temperature
+        })
+      } catch (error) {
+        console.error('保存 API 配置到后端失败:', error)
+        // 向上传播错误，让调用方可以处理
+        throw error
+      }
+    }
   }
 
   async saveConfig(newConfig) {
     Object.assign(this.config, newConfig)
+    const url = newConfig.baseURL || this.config.baseURL || 'https://api.openai.com/v1'
+    let provider = 'openai'
+    if (url.includes('deepseek')) provider = 'deepseek'
+    else if (url.includes('anthropic')) provider = 'claude'
+    else if (url.includes('dashscope') || url.includes('aliyuncs')) provider = 'qwen'
+    else if (url.includes('bigmodel')) provider = 'zhipu'
+    else if (url.includes('baidu') || url.includes('baidubce')) provider = 'wenxin'
+
     try {
       await backendApi.saveAIConfig({
-        provider: 'deepseek',
+        provider,
         api_key: newConfig.apiKey || '',
-        base_url: newConfig.baseURL || 'https://api.deepseek.com',
+        base_url: newConfig.baseURL || 'https://api.openai.com/v1',
         model: newConfig.selectedModel || this.config.selectedModel,
         max_tokens: newConfig.maxTokens || this.config.maxTokens,
         temperature: newConfig.temperature || this.config.temperature
       })
     } catch (error) {
       console.error('保存 API 配置到后端失败:', error)
+      throw error
     }
   }
 
@@ -685,9 +719,18 @@ ${prompt}
 
   async validateAPIKey() {
     try {
-      const config = await backendApi.getAIConfig()
-      return config && config.api_key && config.api_key.length > 0
-    } catch {
+      // 发一个真实的轻量请求测试 API Key 是否有效
+      const response = await this.makeRequest('/chat/completions', {
+        body: JSON.stringify({
+          model: this.config.selectedModel || 'gpt-3.5-turbo',
+          messages: [{ role: 'user', content: 'hi' }],
+          max_tokens: 3,
+          temperature: 0
+        })
+      })
+      return true
+    } catch (error) {
+      console.error('API Key 真实验证失败:', error)
       return false
     }
   }

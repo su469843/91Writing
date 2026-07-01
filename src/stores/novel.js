@@ -50,42 +50,55 @@ export const useNovelStore = defineStore('novel', () => {
   // 初始化时加载API配置（优先从后端，降级到本地）
   const initializeApiConfig = async () => {
     try {
-      // 尝试从后端加载配置
+      // 先从 localStorage 加载真实 API key（本地保存的是完整 key）
+      const savedLocal = localStorage.getItem('apiConfig')
+      let localApiKey = ''
+      if (savedLocal) {
+        try {
+          const parsed = JSON.parse(savedLocal)
+          localApiKey = parsed.apiKey || ''
+        } catch (e) { /* ignore parse error */ }
+      }
+
+      // 尝试从后端加载配置（仅获取非敏感字段，API key 用本地的）
       const token = localStorage.getItem('auth_token')
+      let backendLoaded = false
       if (token) {
         try {
           const config = await backendApi.getAIConfig()
           if (config) {
+            // 后端返回的 api_key 是已掩码的，不要用它覆盖本地的真实 key
             apiConfig.value = {
-              apiKey: config.api_key,
+              apiKey: localApiKey,        // 保留本地真实 key
               baseURL: config.base_url || 'https://api.openai.com/v1',
               selectedModel: config.model || 'gpt-3.5-turbo',
               maxTokens: config.max_tokens || 2000000,
               temperature: config.temperature || 0.7
             }
-            isApiConfigured.value = true
+            isApiConfigured.value = !!localApiKey
             apiService.updateConfig(apiConfig.value)
-            return
+            backendLoaded = true
           }
         } catch (e) {
           console.log('后端配置加载失败，使用本地配置')
         }
       }
 
-      // 降级到本地配置
-      const saved = localStorage.getItem('apiConfig')
-      if (saved) {
-        apiConfig.value = { ...apiConfig.value, ...JSON.parse(saved) }
-      } else {
-        const legacyCustom = localStorage.getItem('customApiConfig')
-        if (legacyCustom) {
-          apiConfig.value = { ...apiConfig.value, ...JSON.parse(legacyCustom) }
-          localStorage.setItem('apiConfig', JSON.stringify(apiConfig.value))
+      if (!backendLoaded) {
+        // 降级到本地配置
+        if (savedLocal) {
+          apiConfig.value = { ...apiConfig.value, ...JSON.parse(savedLocal) }
+        } else {
+          const legacyCustom = localStorage.getItem('customApiConfig')
+          if (legacyCustom) {
+            apiConfig.value = { ...apiConfig.value, ...JSON.parse(legacyCustom) }
+            localStorage.setItem('apiConfig', JSON.stringify(apiConfig.value))
+          }
         }
-      }
 
-      isApiConfigured.value = !!apiConfig.value.apiKey
-      apiService.updateConfig(apiConfig.value)
+        isApiConfigured.value = !!apiConfig.value.apiKey
+        apiService.updateConfig(apiConfig.value)
+      }
     } catch (error) {
       console.error('初始化API配置失败:', error)
     }
