@@ -7,6 +7,10 @@ const fs = require('fs');
 const authRoutes = require('./routes/auth');
 const novelRoutes = require('./routes/novels');
 const chapterRoutes = require('./routes/chapters');
+const characterRoutes = require('./routes/characters');
+const worldSettingsRoutes = require('./routes/worldSettings');
+const goalsRoutes = require('./routes/goals');
+const promptsRoutes = require('./routes/prompts');
 const aiRoutes = require('./routes/ai');
 
 const app = express();
@@ -33,6 +37,10 @@ app.use((req, res, next) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/novels', novelRoutes);
 app.use('/api/chapters', chapterRoutes);
+app.use('/api/characters', characterRoutes);
+app.use('/api/world-settings', worldSettingsRoutes);
+app.use('/api/goals', goalsRoutes);
+app.use('/api/prompts', promptsRoutes);
 app.use('/api/ai', aiRoutes);
 
 // 健康检查

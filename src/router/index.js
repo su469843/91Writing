@@ -13,11 +13,18 @@ import GenreManagement from '../views/GenreManagement.vue'
 import ToolsLibrary from '../views/ToolsLibrary.vue'
 import ShortStory from '../views/ShortStory.vue'
 import BookAnalysis from '../views/BookAnalysis.vue'
+import Auth from '../views/Auth.vue'
 
 const routes = [
   {
+    path: '/auth',
+    name: 'Auth',
+    component: Auth
+  },
+  {
     path: '/',
     component: Dashboard,
+    meta: { requiresAuth: true },
     children: [
       {
         path: '',
@@ -91,6 +98,21 @@ const routes = [
 const router = createRouter({
   history: createWebHashHistory(),
   routes
+})
+
+// 路由守卫
+router.beforeEach((to, from, next) => {
+  const token = localStorage.getItem('auth_token')
+  
+  if (to.meta.requiresAuth && !token) {
+    // 需要认证但未登录，跳转到登录页
+    next('/auth')
+  } else if (to.path === '/auth' && token) {
+    // 已登录但访问登录页，跳转到首页
+    next('/')
+  } else {
+    next()
+  }
 })
 
 export default router
