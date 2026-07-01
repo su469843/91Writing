@@ -267,8 +267,10 @@ const saveConfig = async () => {
   if (!form.baseURL) { ElMessage.warning('请输入 API 地址'); return }
   validating.value = true
   try {
-    // 先等待后端保存完成，再验证
+    // 先同步到本地内存
     await store.updateApiConfig(form)
+    // 先保存到后端（加密存储），再用已保存的配置验证
+    await store.saveApiConfigToBackend()
     const isValid = await store.validateApiKey()
     if (isValid) {
       ElMessage.success('配置保存成功')
@@ -288,6 +290,7 @@ const testConnection = async () => {
   try {
     // 先等待后端保存完成，再测试
     await store.updateApiConfig(form)
+    await store.saveApiConfigToBackend()
     const isValid = await store.validateApiKey()
     if (isValid) ElMessage.success('连接测试成功')
     else ElMessage.error('连接测试失败')

@@ -125,8 +125,11 @@ export const useNovelStore = defineStore('novel', () => {
         max_tokens: apiConfig.value.maxTokens,
         temperature: apiConfig.value.temperature
       })
+
+      localStorage.setItem('apiConfig', JSON.stringify(apiConfig.value))
     } catch (error) {
       console.error('保存API配置到后端失败:', error)
+      throw error
     }
   }
 
