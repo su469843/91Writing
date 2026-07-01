@@ -58,6 +58,7 @@
   --font-serif: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'SimSun', serif;
   --font-display: 'Cormorant Garamond', 'Noto Serif SC', serif;
   --font-sans: 'Noto Sans SC', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-kai: 'LXGW WenKai Screen', 'LXGW WenKai', 'KaiTi', 'STKaiti', serif;
 
   /* —— 过渡 —— */
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
@@ -87,7 +88,7 @@
 
 html, body {
   height: 100%;
-  font-family: var(--font-sans);
+  font-family: var(--font-kai);
   color: var(--text-primary);
   background-color: var(--bg-page);
   -webkit-font-smoothing: antialiased;

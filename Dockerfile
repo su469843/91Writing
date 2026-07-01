@@ -20,6 +20,7 @@ RUN pnpm build
 FROM base AS backend-builder
 WORKDIR /app/server
 COPY server/package*.json ./
+COPY pnpm-lock.yaml /app/
 RUN pnpm install --frozen-lockfile --prod
 
 # ============================================
