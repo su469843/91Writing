@@ -2,10 +2,7 @@ version: '3.8'
 
 services:
   mo-zhang:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: production
+    image: ghcr.io/su469843/91writing:latest
     container_name: mo-zhang
     ports:
       - "3000:3000"
